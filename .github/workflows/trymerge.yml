@@ -1,6 +1,7 @@
 name: Validate and merge PR
 
 on:
+  workflow_dispatch: true
   repository_dispatch:
     types: [try-merge]
 
@@ -32,11 +33,11 @@ jobs:
           git config --global user.name "PyTorch MergeBot"
       - name: Merge PR
         env:
-          PR_NUM: ${{ github.event.client_payload.pr_num }}
+          PR_NUM: 1
           FORCE: ${{ github.event.client_payload.force}}
           ON_GREEN: ${{ github.event.client_payload.on_green}}
           LAND_CHECKS: ${{ github.event.client_payload.land_checks }}
-          COMMENT_ID: ${{ github.event.client_payload.comment_id }}
+          COMMENT_ID: 1398991134
           REBASE: ${{ github.event.client_payload.rebase }}
         run: |
           set -ex
