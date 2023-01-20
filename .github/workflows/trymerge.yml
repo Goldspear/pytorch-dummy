@@ -1,8 +1,9 @@
 name: Validate and merge PR
 
 on:
-  workflow_dispatch:
+  repository_dispatch:
     types: [try-merge]
+  workflow_dispatch:
 
 jobs:
   do_merge:
