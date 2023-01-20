@@ -30,6 +30,7 @@ jobs:
           git config --global user.name "PyTorch MergeBot"
       - name: Merge PR
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUM: 1
           FOOBAR: ${{ github.event.client_payload.foobar }}
           MESSAGE_ID: 1398991134
