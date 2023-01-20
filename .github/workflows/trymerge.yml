@@ -31,7 +31,7 @@ jobs:
         env:
           PR_NUM: 1
           FOOBAR: ${{ github.event.client_payload.foobar }}
-          MESSAGE_ID: 1399037805
+          MESSAGE_ID: 1398991134
           GH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           FORCE: ${{ github.event.client_payload.force}}
         run: |
