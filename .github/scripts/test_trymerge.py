@@ -142,7 +142,7 @@ class DummyGitRepo(GitRepo):
     def commit_message(self, ref: str) -> str:
         return "super awsome commit message"
 
-class TestGitHubPR(TestCase):
+class TestTryMerge(TestCase):
     def test_merge_rules_valid(self) -> None:
         "Test that merge_rules.yaml can be parsed"
         repo = DummyGitRepo()

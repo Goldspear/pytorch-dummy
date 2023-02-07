@@ -48,7 +48,6 @@ def main() -> None:
         if not has_required_labels(pr):
             print(LABEL_ERR_MSG)
             add_label_err_comment(pr)
-            exit(1)
         else:
             delete_all_label_err_comments(pr)
     except Exception as e:
