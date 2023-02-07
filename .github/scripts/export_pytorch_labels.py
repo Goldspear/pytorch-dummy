@@ -12,18 +12,14 @@ This script assumes the correct env vars are set for AWS permissions.
 
 import boto3  # type: ignore[import]
 import json
-from typing import List
-from gitutils import get_pytorch_labels
 
-
-def send_labels_to_S3(labels: List[str]) -> None:
-    labels_file_name = "pytorch_labels.json"
-    obj = boto3.resource('s3').Object('ossci-metrics', labels_file_name)
-    obj.put(Body=json.dumps(labels).encode())
+from label_utils import gh_get_labels
 
 
 def main() -> None:
-    send_labels_to_S3(get_pytorch_labels())
+    labels_file_name = "pytorch_labels.json"
+    obj = boto3.resource('s3').Object('ossci-metrics', labels_file_name)
+    obj.put(Body=json.dumps(gh_get_labels()).encode())
 
 
 if __name__ == '__main__':

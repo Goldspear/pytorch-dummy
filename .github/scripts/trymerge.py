@@ -14,27 +14,31 @@ from typing import (
     Any,
     Callable,
     Dict,
-    Iterable,
     List,
     NamedTuple,
     Optional,
     Pattern,
     Tuple,
-    Union,
     cast,
 )
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 from warnings import warn
 from pathlib import Path
 
 from gitutils import (
     GitRepo,
+    are_ghstack_branches_in_sync,
     get_git_remote_name,
     get_git_repo_dir,
     patterns_to_regex,
-    get_pytorch_labels,
 )
+from github_utils import (
+    GitHubComment,
+    gh_fetch_json,
+    gh_fetch_url,
+    gh_post_commit_comment,
+    gh_post_pr_comment,
+)
+from label_utils import gh_add_labels
 from trymerge_explainer import (
     TryMergeExplainer,
     get_revert_message,
@@ -424,74 +428,9 @@ CIFLOW_LABEL = re.compile(r"^ciflow/.+")
 CIFLOW_TRUNK_LABEL = re.compile(r"^ciflow/trunk")
 MERGE_RULE_PATH = Path(".github") / "merge_rules.yaml"
 
-BOT_AUTHORS = ["github-actions", "pytorchmergebot", "pytorch-bot"]
-
-LABEL_ERR_MSG_TITLE = "This PR needs a label"
-LABEL_ERR_MSG = (
-    f"# {LABEL_ERR_MSG_TITLE}\n"
-    "If your changes are user facing and intended to be a part of release notes, please use a label starting with `release notes:`.\n\n"  # noqa: E501  pylint: disable=line-too-long
-    "If not, please add the `topic: not user facing` label.\n\n"
-    "For more information, see https://github.com/pytorch/pytorch/wiki/PyTorch-AutoLabel-Bot#why-categorize-for-release-notes-and-how-does-it-work."  # noqa: E501  pylint: disable=line-too-long
-)
-
-
-def _fetch_url(url: str, *,
-               headers: Optional[Dict[str, str]] = None,
-               data: Optional[Dict[str, Any]] = None,
-               method: Optional[str] = None,
-               reader: Callable[[Any], Any] = lambda x: x.read()) -> Any:
-    if headers is None:
-        headers = {}
-    token = os.environ.get("GITHUB_TOKEN")
-    if token is not None and url.startswith('https://api.github.com/'):
-        headers['Authorization'] = f'token {token}'
-    data_ = json.dumps(data).encode() if data is not None else None
-    try:
-        with urlopen(Request(url, headers=headers, data=data_, method=method)) as conn:
-            return reader(conn)
-    except HTTPError as err:
-        if err.code == 403 and all(key in err.headers for key in ['X-RateLimit-Limit', 'X-RateLimit-Used']):
-            print(f"Rate limit exceeded: {err.headers['X-RateLimit-Used']}/{err.headers['X-RateLimit-Limit']}")
-        raise
-
-def fetch_json(url: str,
-               params: Optional[Dict[str, Any]] = None,
-               data: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-    headers = {'Accept': 'application/vnd.github.v3+json'}
-    if params is not None and len(params) > 0:
-        url += '?' + '&'.join(f"{name}={urllib.parse.quote(str(val))}" for name, val in params.items())
-    return cast(List[Dict[str, Any]], _fetch_url(url, headers=headers, data=data, reader=json.load))
-
-def fetch_json_dict(url: str,
-                    params: Optional[Dict[str, Any]] = None,
-                    data: Optional[Dict[str, Any]] = None) -> Dict[str, Any] :
-    headers = {'Accept': 'application/vnd.github.v3+json'}
-    if params is not None and len(params) > 0:
-        url += '?' + '&'.join(f"{name}={urllib.parse.quote(str(val))}" for name, val in params.items())
-    return cast(Dict[str, Any], _fetch_url(url, headers=headers, data=data, reader=json.load))
-
-def _gh_post_comment(url: str, comment: str, dry_run: bool = False) -> List[Dict[str, Any]]:
-    if dry_run:
-        print(comment)
-        return []
-    return fetch_json(url, data={"body": comment})
-
-
-def gh_post_pr_comment(org: str, project: str, pr_num: int, comment: str, dry_run: bool = False) -> List[Dict[str, Any]]:
-    return _gh_post_comment(f'https://api.github.com/repos/{org}/{project}/issues/{pr_num}/comments', comment, dry_run)
-
-
-def gh_post_commit_comment(org: str, project: str, sha: str, comment: str, dry_run: bool = False) -> List[Dict[str, Any]]:
-    return _gh_post_comment(f'https://api.github.com/repos/{org}/{project}/commits/{sha}/comments', comment, dry_run)
-
-
-def gh_add_labels(org: str, project: str, pr_num: int, labels: Union[str, List[str]]) -> None:
-    fetch_json(f'https://api.github.com/repos/{org}/{project}/issues/{pr_num}/labels',
-               data={"labels": labels})
-
 
 def gh_graphql(query: str, **kwargs: Any) -> Dict[str, Any]:
-    rc = _fetch_url("https://api.github.com/graphql", data={"query": query, "variables": kwargs}, reader=json.load)
+    rc = gh_fetch_url("https://api.github.com/graphql", data={"query": query, "variables": kwargs}, reader=json.load)
     if "errors" in rc:
         raise RuntimeError(f"GraphQL query {query}, args {kwargs} failed: {rc['errors']}")
     return cast(Dict[str, Any], rc)
@@ -631,6 +570,7 @@ def can_skip_internal_checks(pr: "GitHubPR", comment_id: Optional[int] = None) -
         return False
     return comment.author_login == "facebook-github-bot"
 
+
 def get_ghstack_prs(repo: GitRepo, pr: "GitHubPR") -> List[Tuple["GitHubPR", str]]:
     '''
     Get the open PRs in the stack that are below this PR.  Throws error if any of the PRs are out of sync.
@@ -658,9 +598,7 @@ def get_ghstack_prs(repo: GitRepo, pr: "GitHubPR") -> List[Tuple["GitHubPR", str
             entire_stack.append((pr, rev))
 
     for stacked_pr, rev in entire_stack:
-        commit_sha = stacked_pr.last_commit()['oid']
-        tree_sha = repo._run_git("rev-parse", commit_sha + "^{tree}")
-        if tree_sha not in repo.commit_message(rev):
+        if not are_ghstack_branches_in_sync(repo, stacked_pr.head_ref()):
             raise RuntimeError(
                 f"PR {stacked_pr.pr_num} is out of sync with the corresponding revision {rev} on " +
                 f"branch {orig_ref} that would be merged into master.  " +
@@ -668,15 +606,6 @@ def get_ghstack_prs(repo: GitRepo, pr: "GitHubPR") -> List[Tuple["GitHubPR", str
                 f"Please sync them and try again (ex. make the changes on {orig_ref} and run ghstack)."
             )
     return entire_stack
-
-@dataclass
-class GitHubComment:
-    body_text: str
-    created_at: str
-    author_login: str
-    author_association: str
-    editor_login: Optional[str]
-    database_id: int
 
 
 class GitHubPR:
@@ -1107,7 +1036,7 @@ def gen_new_issue_link(
 def read_merge_rules(repo: Optional[GitRepo], org: str, project: str) -> List[MergeRule]:
     repo_relative_rules_path = MERGE_RULE_PATH
     if repo is None:
-        json_data = _fetch_url(
+        json_data = gh_fetch_url(
             f"https://api.github.com/repos/{org}/{project}/contents/{repo_relative_rules_path}",
             headers={'Accept': 'application/vnd.github.v3+json'},
             reader=json.load,
@@ -1379,7 +1308,7 @@ def check_for_sev(org: str, project: str, skip_mandatory_checks: bool) -> None:
         return
     response = cast(
         Dict[str, Any],
-        fetch_json(
+        gh_fetch_json(
             "https://api.github.com/search/issues",
             params={"q": f'repo:{org}/{project} is:open is:issue label:"ci: sev"'},
         ),
@@ -1409,34 +1338,10 @@ def validate_land_time_checks(org: str, project: str, commit: str) -> None:
 def has_label(labels: List[str], pattern: Pattern[str] = CIFLOW_LABEL) -> bool:
     return len(list(filter(pattern.match, labels))) > 0
 
-def get_release_notes_labels() -> List[str]:
-    return [label for label in get_pytorch_labels() if label.lstrip().startswith("release notes:")]
-
-def has_required_labels(pr: GitHubPR) -> bool:
-    pr_labels = pr.get_labels()
-    # Check if PR is not user facing
-    is_not_user_facing_pr = any(label.strip() == "topic: not user facing" for label in pr_labels)
-    return is_not_user_facing_pr or any(label.strip() in get_release_notes_labels() for label in pr_labels)
-
-def delete_comment(comment_id: int) -> None:
-    url = f"https://api.github.com/repos/pytorch/pytorch/issues/comments/{comment_id}"
-    _fetch_url(url, method="DELETE")
-
-def is_label_err_comment(comment: GitHubComment) -> bool:
-    return comment.body_text.lstrip(" #").startswith(LABEL_ERR_MSG_TITLE) and comment.author_login in BOT_AUTHORS
-
-def delete_all_label_err_comments(pr: GitHubPR) -> None:
-    for comment in pr.get_comments():
-        if is_label_err_comment(comment):
-            delete_comment(comment.database_id)
-
-def add_label_err_comment(pr: GitHubPR) -> None:
-    # Only make a comment if one doesn't exist already
-    if not any(is_label_err_comment(comment) for comment in pr.get_comments()):
-        gh_post_pr_comment(pr.org, pr.project, pr.pr_num, LABEL_ERR_MSG)
-
-def categorize_checks(check_runs: Dict[str, JobCheckState],
-                      required_checks: Iterable[str]) -> Tuple[List[Tuple[str, Optional[str]]], List[Tuple[str, Optional[str]]]]:
+def categorize_checks(
+    check_runs: JobNameToStateDict,
+    required_checks: List[str],
+) -> Tuple[List[Tuple[str, Optional[str]]], List[Tuple[str, Optional[str]]]]:
     pending_checks: List[Tuple[str, Optional[str]]] = []
     failed_checks: List[Tuple[str, Optional[str]]] = []
 
@@ -1491,11 +1396,6 @@ def merge(pr_num: int, repo: GitRepo,
     # jobs. If there's missing approval, a RuntimeError will be raised
     # here to stop the merge process right away
     find_matching_merge_rule(pr, repo, skip_mandatory_checks=True)
-
-    if not has_required_labels(pr):
-        raise RuntimeError(LABEL_ERR_MSG.lstrip(" #"))
-    else:
-        delete_all_label_err_comments(pr)
 
     if land_checks and not dry_run:
         land_check_commit = pr.create_land_time_check_branch(
@@ -1585,7 +1485,6 @@ def main() -> None:
     args = parse_args()
     repo = GitRepo(get_git_repo_dir(), get_git_remote_name())
     org, project = repo.gh_owner_and_name()
-    print(os.environ.get("GITHUB_TOKEN"))
     pr = GitHubPR(org, project, args.pr_num)
 
     def handle_exception(e: Exception, title: str = "Merge failed") -> None:
