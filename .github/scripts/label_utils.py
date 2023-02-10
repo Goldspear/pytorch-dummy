@@ -19,9 +19,8 @@ if TYPE_CHECKING:
 BOT_AUTHORS = ["github-actions", "pytorchmergebot", "pytorch-bot"]
 
 LABEL_ERR_MSG_TITLE = "This PR needs a label"
-LABEL_ERR_MSG = f"""# {LABEL_ERR_MSG_TITLE}\n
+LABEL_ERR_MSG = f"""# {LABEL_ERR_MSG_TITLE}
     If your changes are user facing and intended to be a part of release notes, please use a label starting with `release notes:`.
-
 
     If not, please add the `topic: not user facing` label.
     For more information, see
@@ -54,8 +53,8 @@ def get_last_page_num_from_header(header: Any) -> int:
 
 
 @lru_cache()
-def gh_get_labels(org: str, proj: str) -> List[str]:
-    prefix = f"https://api.github.com/repos/{org}/{proj}/labels?per_page=100"
+def gh_get_labels(org: str, repo: str) -> List[str]:
+    prefix = f"https://api.github.com/repos/{org}/{repo}/labels?per_page=100"
     header, info = request_for_labels(prefix + "&page=1")
     labels: List[str] = []
     update_labels(labels, info)
@@ -69,9 +68,9 @@ def gh_get_labels(org: str, proj: str) -> List[str]:
     return labels
 
 
-def gh_add_labels(org: str, project: str, pr_num: int, labels: Union[str, List[str]]) -> None:
+def gh_add_labels(org: str, repo: str, pr_num: int, labels: Union[str, List[str]]) -> None:
     gh_fetch_json(
-        f'https://api.github.com/repos/{org}/{project}/issues/{pr_num}/labels',
+        f'https://api.github.com/repos/{org}/{repo}/issues/{pr_num}/labels',
         data={"labels": labels},
     )
 

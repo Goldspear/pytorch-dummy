@@ -10,7 +10,7 @@ from gitutils import (
 )
 from trymerge import GitHubPR
 from github_utils import (
-    gh_post_delete_comment,
+    gh_delete_comment,
     gh_post_pr_comment,
 )
 from label_utils import (
@@ -22,13 +22,14 @@ from label_utils import (
 def delete_all_label_err_comments(pr: "GitHubPR") -> None:
     for comment in pr.get_comments():
         if is_label_err_comment(comment):
-            gh_post_delete_comment(pr.org, pr.project, comment.database_id)
+            gh_delete_comment(pr.org, pr.project, comment.database_id)
 
 
 def add_label_err_comment(pr: "GitHubPR") -> None:
     # Only make a comment if one doesn't exist already
     if not any(is_label_err_comment(comment) for comment in pr.get_comments()):
         gh_post_pr_comment(pr.org, pr.project, pr.pr_num, LABEL_ERR_MSG)
+
 
 def parse_args() -> Any:
     from argparse import ArgumentParser
@@ -48,6 +49,7 @@ def main() -> None:
         if not has_required_labels(pr):
             print(LABEL_ERR_MSG)
             add_label_err_comment(pr)
+            exit(1)
         else:
             delete_all_label_err_comments(pr)
     except Exception as e:
