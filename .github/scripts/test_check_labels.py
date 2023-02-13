@@ -9,7 +9,7 @@ from check_labels import (
     delete_all_label_err_comments,
 )
 from github_utils import GitHubComment
-from label_utils import BOT_AUTHORS, LABEL_ERR_MSG, LABEL_ERR_MSG_TITLE
+from label_utils import BOT_AUTHORS, LABEL_ERR_MSG_TITLE
 from test_trymerge import mocked_gh_graphql, mock_gh_get_info
 from trymerge import GitHubPR
 
@@ -95,11 +95,9 @@ class TestCheckLabels(TestCase):
         mock_parse_args: Any,
         mock_gh_get_info: Any,
     ) -> None:
-        with self.assertRaises(SystemExit) as err:
-            check_labels_main()
-            self.assertEqual(err.exception, LABEL_ERR_MSG)
-            mock_add_label_err_comment.assert_called_once()
-            mock_delete_all_label_err_comments.assert_not_called()
+        check_labels_main()
+        mock_add_label_err_comment.assert_called_once()
+        mock_delete_all_label_err_comments.assert_not_called()
 
     @mock.patch('trymerge.gh_get_pr_info', return_value=mock_gh_get_info())
     @mock.patch('check_labels.parse_args', return_value=mock_parse_args())
