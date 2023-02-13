@@ -31,9 +31,9 @@ jobs:
       - name: Merge PR
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUM: 2
+          PR_NUM: 3
           FOOBAR: ${{ github.event.client_payload.foobar }}
-          MESSAGE_ID: 1421590730
+          MESSAGE_ID: 1427697272
           GH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           FORCE: ${{ github.event.client_payload.force}}
         run: |
